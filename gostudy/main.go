@@ -6,14 +6,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type album struct {
+type album struct { // 주어진 형태(틀)
 	ID     string  `json:"id"`
 	Title  string  `json:"title"`
 	Artist string  `json:"artist"`
 	Price  float64 `json:"price"`
 }
 
-var albums = []album{
+var albums = []album{ // 초기값 저장
 	{ID: "1", Title: "Blue Train", Artist: "John Coltrane", Price: 56.99},
 	{ID: "2", Title: "Jeru", Artist: "Gerry Mulligan", Price: 17.99},
 	{ID: "3", Title: "Sarah Vaughan and Clifford Brown", Artist: "Sarah Vaughan", Price: 39.99},
@@ -21,10 +21,12 @@ var albums = []album{
 
 func main() {
 	router := gin.Default()
-	router.GET("/albums", getAlbums)
-	router.GET("/albums/:id", getAlbumByID)
-	router.POST("/albums", postAlbums)
-
+	v1 := router.Group("/v1") // v1으로 묶어서 라우팅 가능
+	{
+		v1.GET("/albums", getAlbums) // 각각 해당하는 함수 지정
+		v1.GET("/albums/:id", getAlbumByID)
+		v1.POST("/albums", postAlbums)
+	}
 	router.Run("localhost:8080")
 }
 
@@ -36,10 +38,10 @@ func postAlbums(c *gin.Context) {
 	var newAlbum album
 
 	if err := c.BindJSON(&newAlbum); err != nil {
-		return
+		return // 에러 발생시 출력
 	}
 
-	albums = append(albums, newAlbum)
+	albums = append(albums, newAlbum) // 새로운 앨범을 추가 (append)
 	c.IndentedJSON(http.StatusCreated, newAlbum)
 }
 

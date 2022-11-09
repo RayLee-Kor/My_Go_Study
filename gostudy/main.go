@@ -2,57 +2,145 @@ package main
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jinzhu/gorm"
+	_ "github.com/jinzhu/gorm/dialects/mysql"
 )
 
-type album struct { // 주어진 형태(틀)
-	ID     string  `json:"id"`
-	Title  string  `json:"title"`
-	Artist string  `json:"artist"`
-	Price  float64 `json:"price"`
-}
+var db *gorm.DB
 
-var albums = []album{ // 초기값 저장
-	{ID: "1", Title: "Blue Train", Artist: "John Coltrane", Price: 56.99},
-	{ID: "2", Title: "Jeru", Artist: "Gerry Mulligan", Price: 17.99},
-	{ID: "3", Title: "Sarah Vaughan and Clifford Brown", Artist: "Sarah Vaughan", Price: 39.99},
+func init() {
+	//open a db connection
+	var err error
+	db, err = gorm.Open("mysql", "root:12345@/demo?charset=utf8&parseTime=True&loc=Local")
+	if err != nil {
+		panic("failed to connect database")
+	}
+
+	//Migrate the schema
+	db.AutoMigrate(&todoModel{})
 }
 
 func main() {
+
 	router := gin.Default()
-	v1 := router.Group("/v1") // v1으로 묶어서 라우팅 가능
+
+	v1 := router.Group("/api/v1/todos")
 	{
-		v1.GET("/albums", getAlbums) // 각각 해당하는 함수 지정
-		v1.GET("/albums/:id", getAlbumByID)
-		v1.POST("/albums", postAlbums)
+		v1.POST("/", createTodo)
+		v1.GET("/", fetchAllTodo)
+		v1.GET("/:id", fetchSingleTodo)
+		v1.PUT("/:id", updateTodo)
+		v1.DELETE("/:id", deleteTodo)
 	}
-	router.Run("localhost:8080")
+	router.Run()
+
 }
 
-func getAlbums(c *gin.Context) {
-	c.IndentedJSON(http.StatusOK, albums)
-}
-
-func postAlbums(c *gin.Context) {
-	var newAlbum album
-
-	if err := c.BindJSON(&newAlbum); err != nil {
-		return // 에러 발생시 출력
+type (
+	// todoModel describes a todoModel type
+	todoModel struct {
+		gorm.Model
+		Title     string `json:"title"`
+		Completed int    `json:"completed"`
 	}
 
-	albums = append(albums, newAlbum) // 새로운 앨범을 추가 (append)
-	c.IndentedJSON(http.StatusCreated, newAlbum)
+	// transformedTodo represents a formatted todo
+	transformedTodo struct {
+		ID        uint   `json:"id"`
+		Title     string `json:"title"`
+		Completed bool   `json:"completed"`
+	}
+)
+
+// createTodo add a new todo
+func createTodo(c *gin.Context) {
+	completed, _ := strconv.Atoi(c.PostForm("completed"))
+	todo := todoModel{Title: c.PostForm("title"), Completed: completed}
+	db.Save(&todo)
+	c.JSON(http.StatusCreated, gin.H{"status": http.StatusCreated, "message": "Todo item created successfully!", "resourceId": todo.ID})
 }
 
-func getAlbumByID(c *gin.Context) {
-	id := c.Param("id")
+// fetchAllTodo fetch all todos
+func fetchAllTodo(c *gin.Context) {
+	var todos []todoModel
+	var _todos []transformedTodo
 
-	for _, a := range albums {
-		if a.ID == id {
-			c.IndentedJSON(http.StatusOK, a)
-			return
+	db.Find(&todos)
+
+	if len(todos) <= 0 {
+		c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "No todo found!"})
+		return
+	}
+
+	//transforms the todos for building a good response
+	for _, item := range todos {
+		completed := false
+		if item.Completed == 1 {
+			completed = true
+		} else {
+			completed = false
 		}
+		_todos = append(_todos, transformedTodo{ID: item.ID, Title: item.Title, Completed: completed})
 	}
-	c.IndentedJSON(http.StatusNotFound, gin.H{"message": "album not found"})
+	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": _todos})
+}
+
+// fetchSingleTodo fetch a single todo
+func fetchSingleTodo(c *gin.Context) {
+	var todo todoModel
+	todoID := c.Param("id")
+
+	db.First(&todo, todoID)
+
+	if todo.ID == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "No todo found!"})
+		return
+	}
+
+	completed := false
+	if todo.Completed == 1 {
+		completed = true
+	} else {
+		completed = false
+	}
+
+	_todo := transformedTodo{ID: todo.ID, Title: todo.Title, Completed: completed}
+	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "data": _todo})
+}
+
+// updateTodo update a todo
+func updateTodo(c *gin.Context) {
+	var todo todoModel
+	todoID := c.Param("id")
+
+	db.First(&todo, todoID)
+
+	if todo.ID == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "No todo found!"})
+		return
+	}
+
+	db.Model(&todo).Update("title", c.PostForm("title"))
+	completed, _ := strconv.Atoi(c.PostForm("completed"))
+	db.Model(&todo).Update("completed", completed)
+	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Todo updated successfully!"})
+}
+
+// deleteTodo remove a todo
+func deleteTodo(c *gin.Context) {
+	var todo todoModel
+	todoID := c.Param("id")
+
+	db.First(&todo, todoID)
+
+	if todo.ID == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"status": http.StatusNotFound, "message": "No todo found!"})
+		return
+	}
+
+	db.Delete(&todo)
+	c.JSON(http.StatusOK, gin.H{"status": http.StatusOK, "message": "Todo deleted successfully!"})
 }
